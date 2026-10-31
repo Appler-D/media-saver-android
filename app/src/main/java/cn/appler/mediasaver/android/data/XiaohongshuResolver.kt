@@ -15,7 +15,12 @@ object XiaohongshuResolver {
   private val noteIdRegex = Regex("""/(?:explore|discovery/item|note)/([0-9a-f]{24})""", RegexOption.IGNORE_CASE)
   private val httpRegex = Regex("""^https?://""", RegexOption.IGNORE_CASE)
 
-  fun resolve(input: String): ResolvedMedia {
+  fun resolve(input: String, cookie: String = ""): ResolvedMedia {
+    val requestHeaders =
+      buildMap {
+        putAll(headers)
+        if (cookie.isNotBlank()) put("Cookie", cookie)
+      }
     val extracted =
       Regex("""https?://[^\s"'<>]+""", RegexOption.IGNORE_CASE).find(input)?.value
         ?.trimEnd(')', ']', ',', '.', ';', '!', '?', '，', '。', '；', '！', '？', '、')
@@ -23,7 +28,7 @@ object XiaohongshuResolver {
 
     var pageUrl = extracted
     var noteId = noteIdFrom(pageUrl)
-    pageUrl = ApiHttp.finalUrl(pageUrl, headers)
+    pageUrl = ApiHttp.finalUrl(pageUrl, requestHeaders)
     val finalUri = Uri.parse(pageUrl)
     if (
       finalUri.path.orEmpty().startsWith("/404") ||
@@ -37,15 +42,12 @@ object XiaohongshuResolver {
       throw ResolveException("没有识别到小红书笔记 ID，请复制笔记页或分享链接")
     }
     if (Uri.parse(pageUrl).path?.contains("/login") == true) {
-      throw ResolveException("小红书要求登录，当前版本还没有接入 Cookie")
+      throw ResolveException("小红书要求登录，请在 Cookie 设置中配置小红书 Cookie 后重试")
     }
 
     val html =
       try {
-        ApiHttp.getText(
-          pageUrl,
-          headers + ("Referer" to REFERER),
-        )
+        ApiHttp.getText(pageUrl, requestHeaders)
       } catch (error: Exception) {
         throw ResolveException("小红书页面读取失败：${error.message}")
       }
@@ -62,14 +64,14 @@ object XiaohongshuResolver {
     val note = state?.let { findNote(it) }
     if (note == null) {
       if (Regex("登录后查看|请先登录|扫码登录|login-container|reds-login").containsMatchIn(html)) {
-        throw ResolveException("小红书要求登录或链接缺少 xsec_token，当前版本还没有接入 Cookie")
+        throw ResolveException("小红书要求登录或链接缺少 xsec_token，请从 App 重新复制链接并配置 Cookie")
       }
       throw ResolveException("没有在小红书页面里找到笔记数据")
     }
 
     val resolvedNoteId = note.optString("noteId").ifBlank { noteId.orEmpty() }
-    val images = buildImages(note)
-    val variants = buildVideoVariants(note)
+    val images = buildImages(note, requestHeaders)
+    val variants = buildVideoVariants(note, requestHeaders)
     val kind = if (variants.isNotEmpty() || note.optString("type") == "video") "video" else "images"
     if (kind == "video" && variants.isEmpty()) {
       throw ResolveException("这条小红书笔记没有可下载的视频地址")
@@ -148,7 +150,7 @@ object XiaohongshuResolver {
     return null
   }
 
-  private fun buildImages(note: JSONObject): List<MediaImage> {
+  private fun buildImages(note: JSONObject, requestHeaders: Map<String, String>): List<MediaImage> {
     val array = note.optJSONArray("imageList") ?: return emptyList()
     val images = mutableListOf<MediaImage>()
     for (index in 0 until array.length()) {
@@ -161,7 +163,7 @@ object XiaohongshuResolver {
           url = toHttps(url),
           ext = ext,
           label = "图片 ${index + 1}",
-          headers = headers,
+          headers = requestHeaders,
         ),
       )
     }
@@ -197,16 +199,16 @@ object XiaohongshuResolver {
     return candidates.maxByOrNull { it.second }?.first
   }
 
-  private fun buildVideoVariants(note: JSONObject): List<MediaVariant> {
+  private fun buildVideoVariants(note: JSONObject, requestHeaders: Map<String, String>): List<MediaVariant> {
     val stream = note.optJSONObject("video")?.optJSONObject("media")?.optJSONObject("stream") ?: return emptyList()
-    val h264 = parseStreams(stream.optJSONArray("h264"), "H.264")
+    val h264 = parseStreams(stream.optJSONArray("h264"), "H.264", requestHeaders)
     if (h264.isNotEmpty()) return h264
-    val h265 = parseStreams(stream.optJSONArray("h265"), "H.265")
+    val h265 = parseStreams(stream.optJSONArray("h265"), "H.265", requestHeaders)
     if (h265.isNotEmpty()) return h265
-    return parseStreams(stream.optJSONArray("av1"), "AV1")
+    return parseStreams(stream.optJSONArray("av1"), "AV1", requestHeaders)
   }
 
-  private fun parseStreams(array: JSONArray?, codec: String): List<MediaVariant> {
+  private fun parseStreams(array: JSONArray?, codec: String, requestHeaders: Map<String, String>): List<MediaVariant> {
     if (array == null) return emptyList()
     val variants = mutableListOf<MediaVariant>()
     for (index in 0 until array.length()) {
@@ -221,7 +223,7 @@ object XiaohongshuResolver {
           label = "${if (height > 0) "${height}P" else "原画"} · $codec",
           quality = quality,
           url = toHttps(url),
-          headers = headers,
+          headers = requestHeaders,
         ),
       )
     }

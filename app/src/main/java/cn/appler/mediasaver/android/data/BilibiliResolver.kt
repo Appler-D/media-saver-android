@@ -14,6 +14,18 @@ object BilibiliResolver {
 
   private val headers = mapOf("Referer" to REFERER, "User-Agent" to ApiHttp.USER_AGENT)
   private val cdnHeaders = mapOf("Referer" to REFERER, "User-Agent" to ApiHttp.USER_AGENT)
+
+  private fun apiHeaders(cookie: String): Map<String, String> =
+    buildMap {
+      putAll(headers)
+      if (cookie.isNotBlank()) put("Cookie", cookie)
+    }
+
+  private fun downloadHeaders(cookie: String): Map<String, String> =
+    buildMap {
+      putAll(cdnHeaders)
+      if (cookie.isNotBlank()) put("Cookie", cookie)
+    }
   private val bvidRegex = Regex(BVID_PATTERN)
   private val aidRegex = Regex(AID_PATTERN, RegexOption.IGNORE_CASE)
   private val urlRegex = Regex("""https?://[^\s"'<>]+""", RegexOption.IGNORE_CASE)
@@ -64,18 +76,19 @@ object BilibiliResolver {
 
   @Volatile private var wbiKeys: Pair<String, String>? = null
 
-  fun resolve(input: String): ResolvedMedia {
+  fun resolve(input: String, cookie: String = ""): ResolvedMedia {
     val rawUrl =
       urlRegex.find(input)?.value?.trimEnd(')', ']', ',', '.', ';', '!', '?', '，', '。', '；', '！', '？', '、')
         ?: throw ResolveException("没有找到 B 站链接")
-    val pageUrl = normalizeUrl(rawUrl)
+    val requestHeaders = apiHeaders(cookie)
+    val pageUrl = normalizeUrl(rawUrl, requestHeaders)
     val bvid = bvidRegex.find(pageUrl)?.value
     val aid = if (bvid == null) aidRegex.find(pageUrl)?.groupValues?.getOrNull(1) else null
     if (bvid == null && aid == null) {
       throw ResolveException("没有识别到 B 站视频 ID")
     }
 
-    val view = fetchView(bvid, aid)
+    val view = fetchView(bvid, aid, requestHeaders)
     val viewData = view.optJSONObject("data") ?: throw ResolveException("B 站返回数据为空")
     val resolvedBvid = viewData.optString("bvid").ifBlank { bvid ?: throw ResolveException("没有解析到 BV 号") }
     val pages = parsePages(viewData.optJSONArray("pages"))
@@ -91,9 +104,9 @@ object BilibiliResolver {
       }
     val author = viewData.optJSONObject("owner")?.optString("name")?.takeIf { it.isNotBlank() }
 
-    val dash = runCatching { fetchPlay(resolvedBvid, selected.cid, "4048") }.getOrNull()
-    val durl = runCatching { fetchPlay(resolvedBvid, selected.cid, "0") }.getOrNull()
-    val variants = buildVariants(dash, durl)
+    val dash = runCatching { fetchPlay(resolvedBvid, selected.cid, "4048", requestHeaders) }.getOrNull()
+    val durl = runCatching { fetchPlay(resolvedBvid, selected.cid, "0", requestHeaders) }.getOrNull()
+    val variants = buildVariants(dash, durl, cookie)
     if (variants.isEmpty()) {
       throw ResolveException("没有拿到可下载的清晰度，可能需要登录 Cookie 或该视频有地区限制")
     }
@@ -107,18 +120,18 @@ object BilibiliResolver {
     )
   }
 
-  private fun normalizeUrl(url: String): String {
+  private fun normalizeUrl(url: String, requestHeaders: Map<String, String>): String {
     val host = runCatching { Uri.parse(url).host.orEmpty().lowercase() }.getOrDefault("")
     if (host == "b23.tv" || host.endsWith(".b23.tv") || host == "bili2233.cn") {
-      return ApiHttp.finalUrl(url, headers)
+      return ApiHttp.finalUrl(url, requestHeaders)
     }
     return url
   }
 
-  private fun fetchView(bvid: String?, aid: String?): JSONObject {
+  private fun fetchView(bvid: String?, aid: String?, requestHeaders: Map<String, String>): JSONObject {
     val query =
       if (bvid != null) "bvid=${encode(bvid)}" else "aid=${encode(aid.orEmpty())}"
-    val json = JSONObject(ApiHttp.getText("$API/x/web-interface/view?$query", headers))
+    val json = JSONObject(ApiHttp.getText("$API/x/web-interface/view?$query", requestHeaders))
     val code = json.optInt("code", -1)
     if (code != 0) {
       throw ResolveException("B 站解析失败：${json.optString("message", "code=$code")}")
@@ -126,7 +139,7 @@ object BilibiliResolver {
     return json
   }
 
-  private fun fetchPlay(bvid: String, cid: Long, fnval: String): PlayData? {
+  private fun fetchPlay(bvid: String, cid: Long, fnval: String, requestHeaders: Map<String, String>): PlayData? {
     val params =
       linkedMapOf(
         "bvid" to bvid,
@@ -137,13 +150,13 @@ object BilibiliResolver {
         "fourk" to "1",
       )
     val rawQuery = params.entries.joinToString("&") { "${encode(it.key)}=${encode(it.value)}" }
-    var json = JSONObject(ApiHttp.getText("$API/x/player/playurl?$rawQuery", headers))
+    var json = JSONObject(ApiHttp.getText("$API/x/player/playurl?$rawQuery", requestHeaders))
     val firstCode = json.optInt("code", -1)
     if (firstCode != 0) {
       if (firstCode == -403 || firstCode == -352 || firstCode == -401) {
-        val keys = getWbiKeys()
+        val keys = getWbiKeys(requestHeaders)
         val signed = signWbiParams(params, keys)
-        json = JSONObject(ApiHttp.getText("$API/x/player/wbi/playurl?$signed", headers))
+        json = JSONObject(ApiHttp.getText("$API/x/player/wbi/playurl?$signed", requestHeaders))
       } else {
         return null
       }
@@ -232,7 +245,7 @@ object BilibiliResolver {
     }
   }
 
-  private fun buildVariants(dash: PlayData?, durl: PlayData?): List<MediaVariant> {
+  private fun buildVariants(dash: PlayData?, durl: PlayData?, cookie: String): List<MediaVariant> {
     val variants = mutableListOf<MediaVariant>()
     if (dash != null) {
       val grouped = dash.dashVideos.groupBy { it.id }
@@ -253,7 +266,7 @@ object BilibiliResolver {
             requiresMerge = dash.audioUrl != null,
             videoUrl = absoluteUrl(videoUrl),
             audioUrl = dash.audioUrl?.let(::absoluteUrl),
-            headers = cdnHeaders,
+            headers = downloadHeaders(cookie),
           ),
         )
       }
@@ -270,7 +283,7 @@ object BilibiliResolver {
             label = "$label · 单文件",
             quality = "q$quality",
             url = absoluteUrl(url),
-            headers = cdnHeaders,
+            headers = downloadHeaders(cookie),
           ),
         )
       }
@@ -321,9 +334,9 @@ object BilibiliResolver {
     }
   }
 
-  private fun getWbiKeys(): Pair<String, String> {
+  private fun getWbiKeys(requestHeaders: Map<String, String>): Pair<String, String> {
     wbiKeys?.let { return it }
-    val json = JSONObject(ApiHttp.getText("$API/x/web-interface/nav", headers))
+    val json = JSONObject(ApiHttp.getText("$API/x/web-interface/nav", requestHeaders))
     val data = json.optJSONObject("data") ?: throw ResolveException("无法获取 B 站 WBI 密钥")
     val imgUrl = data.optJSONObject("wbi_img")?.optString("img_url").orEmpty()
     val subUrl = data.optJSONObject("wbi_img")?.optString("sub_url").orEmpty()

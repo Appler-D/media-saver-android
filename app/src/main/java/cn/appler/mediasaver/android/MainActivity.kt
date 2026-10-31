@@ -49,6 +49,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import cn.appler.mediasaver.android.data.BilibiliResolver
+import cn.appler.mediasaver.android.data.CookieStore
 import cn.appler.mediasaver.android.data.DouyinResolver
 import cn.appler.mediasaver.android.data.DownloadProgress
 import cn.appler.mediasaver.android.data.Downloader
@@ -101,6 +102,9 @@ private fun MediaSaverScreen(sharedText: String?) {
   var progress by remember { mutableStateOf<DownloadProgress?>(null) }
   var douyinPageUrl by remember { mutableStateOf("") }
   var showDouyinWebView by remember { mutableStateOf(false) }
+  var showCookieSettings by remember { mutableStateOf(false) }
+  var biliCookie by rememberSaveable { mutableStateOf(CookieStore.bilibili(context)) }
+  var xhsCookie by rememberSaveable { mutableStateOf(CookieStore.xiaohongshu(context)) }
   val platform = remember(input) { detectPlatform(input) }
 
   LaunchedEffect(sharedText) {
@@ -149,8 +153,8 @@ private fun MediaSaverScreen(sharedText: String?) {
         val data =
           withContext(Dispatchers.IO) {
             when (detected) {
-              "bilibili" -> BilibiliResolver.resolve(input)
-              "xiaohongshu" -> XiaohongshuResolver.resolve(input)
+              "bilibili" -> BilibiliResolver.resolve(input, biliCookie)
+              "xiaohongshu" -> XiaohongshuResolver.resolve(input, xhsCookie)
               else -> DouyinResolver.resolve(input)
             }
           }
@@ -291,6 +295,9 @@ private fun MediaSaverScreen(sharedText: String?) {
         ) {
           Text("粘贴")
         }
+        TextButton(onClick = { showCookieSettings = !showCookieSettings }) {
+          Text("Cookie")
+        }
         if (platform != null) {
           SuggestionChip(
             onClick = {},
@@ -310,6 +317,50 @@ private fun MediaSaverScreen(sharedText: String?) {
               MaterialTheme.colorScheme.primary
             },
         )
+      }
+
+      if (showCookieSettings) {
+        Card(modifier = Modifier.fillMaxWidth()) {
+          Column(
+            modifier = Modifier.padding(16.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
+          ) {
+            Text("Cookie 设置", style = MaterialTheme.typography.titleMedium)
+            Text(
+              "只保存在本机，不会上传。B 站高清和小红书部分笔记需要登录 Cookie。",
+              style = MaterialTheme.typography.bodySmall,
+              color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            OutlinedTextField(
+              value = biliCookie,
+              onValueChange = { biliCookie = it },
+              modifier = Modifier.fillMaxWidth(),
+              label = { Text("B站 Cookie（SESSDATA=…）") },
+              minLines = 2,
+            )
+            OutlinedTextField(
+              value = xhsCookie,
+              onValueChange = { xhsCookie = it },
+              modifier = Modifier.fillMaxWidth(),
+              label = { Text("小红书 Cookie（a1=…; web_session=…）") },
+              minLines = 2,
+            )
+            Row(
+              modifier = Modifier.fillMaxWidth(),
+              horizontalArrangement = Arrangement.End,
+            ) {
+              Button(
+                onClick = {
+                  CookieStore.save(context, biliCookie, xhsCookie)
+                  status = "Cookie 已保存到本机"
+                  showCookieSettings = false
+                },
+              ) {
+                Text("保存 Cookie")
+              }
+            }
+          }
+        }
       }
 
       val currentProgress = progress

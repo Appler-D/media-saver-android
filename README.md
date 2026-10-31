@@ -15,7 +15,8 @@
 - [x] 哔哩哔哩：原生 API、WBI 签名、清晰度选择、DASH 合并，已在 Android 12 模拟器实测
 - [~] 小红书：分享页解析、视频/图集保存代码已接入，缺少带 xsec_token 的有效链接做实测
 - [~] 抖音：分享页/WebView 数据捕获代码已接入，但当前测试链接被登录/安全验证拦截
-- [ ] 哔哩哔哩/小红书/抖音登录 Cookie
+- [x] App 内 B 站/小红书 Cookie 设置，只保存在本机
+- [ ] 抖音 WebView 登录态和深链拦截
 - [ ] 手机下载历史、批量任务
 
 ## 技术方向
@@ -25,6 +26,15 @@
 - 抖音使用应用内 WebView 完成页面签名和数据提取；小红书优先解析分享页状态。
 - 视频下载到手机公共下载目录；DASH 分离流优先使用 Android MediaMuxer 合并。
 - 不使用账号 Cookie 上传、不做云端转发。
+
+## Cookie
+
+App 内的“Cookie”入口可以填写：
+
+- B 站：`SESSDATA=...; bili_jct=...;`，用于 1080P+ 清晰度
+- 小红书：`a1=...; web_session=...;`，用于部分需要登录的笔记
+
+Cookie 只保存在 App 的私有 SharedPreferences 里，不会上传到云端。抖音使用 WebView 页面登录态，不使用这里的 Cookie。
 
 ## 构建
 
