@@ -20,11 +20,14 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
+import androidx.compose.material3.Checkbox
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
@@ -43,6 +46,8 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.text.font.FontWeight
@@ -53,9 +58,12 @@ import cn.appler.mediasaver.android.data.CookieStore
 import cn.appler.mediasaver.android.data.DouyinResolver
 import cn.appler.mediasaver.android.data.DownloadProgress
 import cn.appler.mediasaver.android.data.Downloader
+import cn.appler.mediasaver.android.data.MediaImage
 import cn.appler.mediasaver.android.data.MediaVariant
 import cn.appler.mediasaver.android.data.ResolvedMedia
 import cn.appler.mediasaver.android.data.XiaohongshuResolver
+import coil.compose.AsyncImage
+import coil.request.ImageRequest
 import cn.appler.mediasaver.android.ui.theme.MediaSaverTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
@@ -196,24 +204,24 @@ private fun MediaSaverScreen(sharedText: String?) {
     }
   }
 
-  fun startImageDownload(media: ResolvedMedia) {
-    if (downloadingId != null || media.images.isEmpty()) return
+  fun startImageDownload(media: ResolvedMedia, images: List<MediaImage>) {
+    if (downloadingId != null || images.isEmpty()) return
     downloadingId = "images"
     progress = DownloadProgress("准备下载图片")
     scope.launch {
       var saved = 0
       try {
-        for ((index, image) in media.images.withIndex()) {
-          mainHandler.post { status = "保存图片 ${index + 1}/${media.images.size}…" }
+        for ((index, image) in images.withIndex()) {
+          mainHandler.post { status = "保存图片 ${index + 1}/${images.size}…" }
           Downloader.saveImage(context, media, image) { update ->
             mainHandler.post {
               progress = update
-              status = "保存图片 ${index + 1}/${media.images.size} ${formatProgress(update)}"
+              status = "保存图片 ${index + 1}/${images.size} ${formatProgress(update)}"
             }
           }
           saved += 1
         }
-        status = "已保存 $saved 张图片到手机“下载/MediaSaver”目录"
+        status = "已保存 $saved 张图片到手机“下载/MediaSaver/日期”目录"
       } catch (error: Exception) {
         status = error.message ?: "图片保存失败"
       } finally {
@@ -477,7 +485,7 @@ private fun ResultCard(
   media: ResolvedMedia,
   downloadingId: String?,
   onDownload: (MediaVariant) -> Unit,
-  onDownloadImages: (ResolvedMedia) -> Unit,
+  onDownloadImages: (ResolvedMedia, List<MediaImage>) -> Unit,
 ) {
   Card(modifier = Modifier.fillMaxWidth()) {
     Column(
@@ -491,17 +499,90 @@ private fun ResultCard(
         color = MaterialTheme.colorScheme.onSurfaceVariant,
       )
       if (media.kind == "images") {
-        Text(
-          "共 ${media.images.size} 张图片",
-          style = MaterialTheme.typography.bodyMedium,
-          color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-        OutlinedButton(
-          onClick = { onDownloadImages(media) },
-          enabled = downloadingId == null,
+        val imageContext = LocalContext.current
+        var selectedIds by remember(media) {
+          mutableStateOf(media.images.map { it.id }.toSet())
+        }
+        Row(
           modifier = Modifier.fillMaxWidth(),
+          verticalAlignment = Alignment.CenterVertically,
         ) {
-          Text(if (downloadingId == "images") "保存中…" else "保存全部图片")
+          Text(
+            "共 ${media.images.size} 张图片",
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+          )
+          TextButton(
+            onClick = {
+              selectedIds =
+                if (selectedIds.size == media.images.size) {
+                  emptySet()
+                } else {
+                  media.images.map { it.id }.toSet()
+                }
+            },
+            enabled = downloadingId == null,
+          ) {
+            Text(if (selectedIds.size == media.images.size) "取消全选" else "全选")
+          }
+        }
+        media.images.forEach { image ->
+          Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+          ) {
+            AsyncImage(
+              model =
+                ImageRequest.Builder(imageContext)
+                  .data(image.url)
+                  .apply {
+                    image.headers.forEach { (key, value) -> addHeader(key, value) }
+                  }
+                  .build(),
+              contentDescription = image.label,
+              modifier = Modifier.size(64.dp).clip(RoundedCornerShape(8.dp)),
+              contentScale = ContentScale.Crop,
+            )
+            Column(modifier = Modifier.weight(1f)) {
+              Text(image.label, style = MaterialTheme.typography.bodyMedium)
+              Text(
+                image.ext.uppercase(),
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+              )
+            }
+            Checkbox(
+              checked = image.id in selectedIds,
+              onCheckedChange = { checked ->
+                selectedIds =
+                  if (checked) selectedIds + image.id else selectedIds - image.id
+              },
+              enabled = downloadingId == null,
+            )
+          }
+        }
+        Row(
+          modifier = Modifier.fillMaxWidth(),
+          horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+          OutlinedButton(
+            onClick = { onDownloadImages(media, media.images) },
+            enabled = downloadingId == null,
+            modifier = Modifier.weight(1f),
+          ) {
+            Text(if (downloadingId == "images") "保存中…" else "全部保存")
+          }
+          Button(
+            onClick = {
+              onDownloadImages(media, media.images.filter { it.id in selectedIds })
+            },
+            enabled = downloadingId == null && selectedIds.isNotEmpty(),
+            modifier = Modifier.weight(1f),
+          ) {
+            Text("保存选中 (${selectedIds.size})")
+          }
         }
       } else {
         media.variants.forEach { variant ->
