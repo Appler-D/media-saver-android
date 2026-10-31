@@ -10,14 +10,15 @@
 
 - [x] Kotlin + Jetpack Compose 项目骨架
 - [x] 平台识别与解析接口
-- [ ] 哔哩哔哩：原生 API、WBI 签名、清晰度选择、DASH 合并
+- [x] 哔哩哔哩：原生 API、WBI 签名、清晰度选择、DASH 合并，已在 Android 12 模拟器实测
+- [ ] 哔哩哔哩登录 Cookie（1080P+）
 - [ ] 小红书：分享页解析、登录态、视频/图集下载
 - [ ] 抖音：WebView 页面数据提取与下载
-- [ ] 手机下载历史、分享入口、批量任务
+- [ ] 手机下载历史、批量任务
 
 ## 技术方向
 
-- Android 原生 Kotlin，最低 Android 8.0（API 26）。
+- Android 原生 Kotlin，最低 Android 10（API 29）。
 - 哔哩哔哩优先使用原生 API，不依赖电脑浏览器。
 - 抖音使用应用内 WebView 完成页面签名和数据提取；小红书优先解析分享页状态。
 - 视频下载到手机公共下载目录；DASH 分离流优先使用 Android MediaMuxer 合并。
