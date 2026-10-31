@@ -13,6 +13,8 @@ import java.io.FileOutputStream
 import java.io.IOException
 import java.io.OutputStream
 import java.nio.ByteBuffer
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
@@ -126,7 +128,7 @@ object Downloader {
         put(MediaStore.Downloads.MIME_TYPE, mimeType)
         put(
           MediaStore.Downloads.RELATIVE_PATH,
-          "${Environment.DIRECTORY_DOWNLOADS}/MediaSaver",
+          "${Environment.DIRECTORY_DOWNLOADS}/MediaSaver/${dateFolder()}",
         )
         put(MediaStore.Downloads.IS_PENDING, 1)
       }
@@ -236,6 +238,8 @@ object Downloader {
       extractor.advance()
     }
   }
+
+  private fun dateFolder(): String = LocalDate.now().format(DateTimeFormatter.ISO_LOCAL_DATE)
 
   private fun filename(media: ResolvedMedia, variant: MediaVariant): String {
     val raw = "${media.title}-${variant.quality}"

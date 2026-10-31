@@ -24,7 +24,7 @@
 - Android 原生 Kotlin，最低 Android 10（API 29）。
 - 哔哩哔哩优先使用原生 API，不依赖电脑浏览器。
 - 抖音使用应用内 WebView 完成页面签名和数据提取；小红书优先解析分享页状态。
-- 视频下载到手机公共下载目录；DASH 分离流优先使用 Android MediaMuxer 合并。
+- 视频和图片保存到手机 `Download/MediaSaver/YYYY-MM-DD/`，按本地日期自动分文件夹；DASH 分离流优先使用 Android MediaMuxer 合并。
 - 不使用账号 Cookie 上传、不做云端转发。
 
 ## Cookie
