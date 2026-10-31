@@ -6,7 +6,9 @@
 
 ## 当前状态
 
-这是与桌面版 [media-saver](https://github.com/Appler-D/media-saver) 分开的新项目，正在开发中，尚未发布可用安装包。
+这是与桌面版 [media-saver](https://github.com/Appler-D/media-saver) 分开的新项目。
+
+[下载 v0.1.0-alpha.1 测试 APK](https://github.com/Appler-D/media-saver-android/releases/tag/v0.1.0-alpha.1)（Android 10+，调试签名，目前仅支持哔哩哔哩）。
 
 - [x] Kotlin + Jetpack Compose 项目骨架
 - [x] 平台识别与解析接口
