@@ -26,7 +26,7 @@ object Downloader {
     withContext(Dispatchers.IO) {
       val filename = filename(media, variant)
       if (variant.url != null) {
-        val uri = createPending(context, filename)
+        val uri = createPending(context, filename, "video/mp4")
         try {
           ApiHttp.download(variant.url, variant.headers) { received, total ->
             onProgress(DownloadProgress("video", received, total))
@@ -54,7 +54,7 @@ object Downloader {
             downloadToFile(audioUrl, audioFile, variant.headers, "audio", onProgress)
           }
           mux(videoFile, audioFile, mergedFile, onProgress)
-          val uri = createPending(context, filename)
+          val uri = createPending(context, filename, "video/mp4")
           try {
             mergedFile.inputStream().use { input ->
               context.contentResolver.openOutputStream(uri)?.use { output ->
@@ -76,6 +76,35 @@ object Downloader {
       }
     }
 
+  suspend fun saveImage(
+    context: Context,
+    media: ResolvedMedia,
+    image: MediaImage,
+    onProgress: (DownloadProgress) -> Unit,
+  ): Uri =
+    withContext(Dispatchers.IO) {
+      val ext = if (image.ext == "jpeg") "jpg" else image.ext
+      val raw = "${media.title}-${image.id}"
+        .replace(Regex("""[\\/:*?"<>|]"""), " ")
+        .trim()
+        .take(110)
+      val uri = createPending(context, "$raw.$ext", mimeFor(image.ext))
+      try {
+        ApiHttp.download(image.url, image.headers) { received, total ->
+          onProgress(DownloadProgress("image", received, total))
+        }.use { input ->
+          context.contentResolver.openOutputStream(uri)?.use { output ->
+            copy(input, output)
+          } ?: throw IOException("无法创建图片文件")
+        }
+        finish(context, uri)
+        uri
+      } catch (error: Exception) {
+        context.contentResolver.delete(uri, null, null)
+        throw error
+      }
+    }
+
   private fun downloadToFile(
     url: String,
     file: File,
@@ -90,11 +119,11 @@ object Downloader {
     }
   }
 
-  private fun createPending(context: Context, filename: String): Uri {
+  private fun createPending(context: Context, filename: String, mimeType: String): Uri {
     val values =
       ContentValues().apply {
         put(MediaStore.Downloads.DISPLAY_NAME, filename)
-        put(MediaStore.Downloads.MIME_TYPE, "video/mp4")
+        put(MediaStore.Downloads.MIME_TYPE, mimeType)
         put(
           MediaStore.Downloads.RELATIVE_PATH,
           "${Environment.DIRECTORY_DOWNLOADS}/MediaSaver",
@@ -215,4 +244,13 @@ object Downloader {
       .take(110)
     return "$raw.mp4"
   }
+
+  private fun mimeFor(ext: String): String =
+    when (ext.lowercase()) {
+      "jpg", "jpeg" -> "image/jpeg"
+      "png" -> "image/png"
+      "webp" -> "image/webp"
+      "gif" -> "image/gif"
+      else -> "application/octet-stream"
+    }
 }

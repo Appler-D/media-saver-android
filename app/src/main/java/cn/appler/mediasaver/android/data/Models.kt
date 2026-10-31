@@ -11,12 +11,22 @@ data class MediaVariant(
   val headers: Map<String, String> = emptyMap(),
 )
 
+data class MediaImage(
+  val id: String,
+  val url: String,
+  val ext: String,
+  val label: String,
+  val headers: Map<String, String> = emptyMap(),
+)
+
 data class ResolvedMedia(
   val platform: String,
   val title: String,
   val author: String?,
   val pageUrl: String,
   val variants: List<MediaVariant>,
+  val kind: String = "video",
+  val images: List<MediaImage> = emptyList(),
 )
 
 class ResolveException(message: String) : Exception(message)
